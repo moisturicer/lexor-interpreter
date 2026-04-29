@@ -4,7 +4,7 @@ import lexor.core.error.LexerException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Lexer {
+public class    Lexer {
     private final String source;
     private int pos;
     private int line;

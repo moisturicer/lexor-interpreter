@@ -1,9 +1,28 @@
 package lexor.core;
 
+import lexor.core.ast.ProgramNode;
+import lexor.core.error.LexorException;
+import lexor.core.lexer.Lexer;
+import lexor.core.lexer.Token;
+import lexor.core.parser.Parser;
+
+import java.util.List;
+
 public class LexorRunner {
 
     public static String run(String sourceCode) {
-        // TODO: wire Lexer -> Parser -> Interpreter here
-        return "LEXOR core not yet implemented";
+        try {
+            Lexer lexer = new Lexer(sourceCode);
+            List<Token> tokens = lexer.tokenize();
+
+            Parser parser = new Parser(tokens);
+            ProgramNode program = parser.parse();
+
+            // interpreter not yet wired — Member B's phase 2
+            return "parsed ok — interpreter coming soon";
+
+        } catch (LexorException e) {
+            return "error: " + e.getMessage();
+        }
     }
 }

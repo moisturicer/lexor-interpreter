@@ -8,11 +8,6 @@ import lexor.core.lexer.TokenType;
 import java.util.List;
 import java.util.Scanner;
 
-/**
- * Tree-walking interpreter.
- * Implements NodeVisitor<LexorValue> — each visit() method evaluates its node
- * and returns the resulting LexorValue (or null for statement nodes).
- */
 public class Interpreter implements NodeVisitor<LexorValue> {
 
     private Environment env;
@@ -25,34 +20,28 @@ public class Interpreter implements NodeVisitor<LexorValue> {
         this.inputScanner = new Scanner(System.in);
     }
 
-    // ── entry point ───────────────────────────────────────────
+    public Interpreter(String input) {
+        this.env          = new Environment();
+        this.output       = new StringBuilder();
+        this.inputScanner = new Scanner(input.replace(",", "\n"));
+    }
 
-    /**
-     * Run the program. Called by LexorRunner after parsing.
-     * Returns all printed output as a single String.
-     */
     public String run(ProgramNode program) {
         output.setLength(0);
         program.accept(this);
         return output.toString();
     }
 
-    // ── program ───────────────────────────────────────────────
-
     @Override
     public LexorValue visitProgram(ProgramNode node) {
-        // process declarations first
         for (DeclareNode decl : node.getDeclarations()) {
             decl.accept(this);
         }
-        // then execute statements
         for (Node stmt : node.getStatements()) {
             stmt.accept(this);
         }
         return null;
     }
-
-    // ── statements ────────────────────────────────────────────
 
     @Override
     public LexorValue visitDeclare(DeclareNode node) {
@@ -70,14 +59,10 @@ public class Interpreter implements NodeVisitor<LexorValue> {
     @Override
     public LexorValue visitAssign(AssignNode node) {
         LexorValue value = node.getExpression().accept(this);
-
-        // handle chained assign: the inner AssignNode already stored its var;
-        // we only need to store the outermost name with the final value.
-        // Unwrap to the raw value (AssignNode returns null — use the expr result).
         TokenType declaredType = env.getType(node.getVarName());
         value = TypeChecker.checkAssign(node.getVarName(), declaredType, value, node.getLine());
         env.set(node.getVarName(), value);
-        return value; // return value so chained assign works
+        return value;
     }
 
     @Override
@@ -106,24 +91,31 @@ public class Interpreter implements NodeVisitor<LexorValue> {
 
             try {
                 switch (declaredType) {
-                    case INT:   value = LexorValue.ofInt(Integer.parseInt(raw));     break;
-                    case FLOAT: value = LexorValue.ofFloat(Double.parseDouble(raw)); break;
+                    case INT:
+                        value = LexorValue.ofInt(Integer.parseInt(raw));
+                        break;
+                    case FLOAT:
+                        value = LexorValue.ofFloat(Double.parseDouble(raw));
+                        break;
                     case CHAR:
                         if (raw.length() != 1)
                             throw new RuntimeException("CHAR input must be a single character");
                         value = LexorValue.ofChar(raw.charAt(0));
                         break;
                     case BOOL:
-                        if (raw.equalsIgnoreCase("TRUE"))       value = LexorValue.ofBool(true);
-                        else if (raw.equalsIgnoreCase("FALSE"))  value = LexorValue.ofBool(false);
-                        else throw new RuntimeException("BOOL input must be TRUE or FALSE");
+                        if (raw.equalsIgnoreCase("TRUE"))
+                            value = LexorValue.ofBool(true);
+                        else if (raw.equalsIgnoreCase("FALSE"))
+                            value = LexorValue.ofBool(false);
+                        else
+                            throw new RuntimeException("BOOL input must be TRUE or FALSE");
                         break;
                     default:
-                        throw new RuntimeException("Unknown type for SCAN");
+                        throw new RuntimeException("unknown type for SCAN");
                 }
             } catch (NumberFormatException e) {
                 throw new RuntimeException("[Line " + node.getLine()
-                        + "] Runtime error: invalid input '" + raw
+                        + "] invalid input '" + raw
                         + "' for variable '" + varName + "' of type " + declaredType);
             }
 
@@ -134,7 +126,6 @@ public class Interpreter implements NodeVisitor<LexorValue> {
 
     @Override
     public LexorValue visitIf(IfNode node) {
-        // evaluate the main IF branch
         LexorValue cond = node.getIfBranch().getCondition().accept(this);
         TypeChecker.checkBool(cond, "IF", node.getLine());
 
@@ -143,7 +134,6 @@ public class Interpreter implements NodeVisitor<LexorValue> {
             return null;
         }
 
-        // ELSE IF branches
         for (IfNode.Branch branch : node.getElseIfBranches()) {
             LexorValue elseIfCond = branch.getCondition().accept(this);
             TypeChecker.checkBool(elseIfCond, "ELSE IF", node.getLine());
@@ -153,7 +143,6 @@ public class Interpreter implements NodeVisitor<LexorValue> {
             }
         }
 
-        // ELSE branch
         if (node.hasElse()) {
             executeBlock(node.getElseBranch());
         }
@@ -163,7 +152,7 @@ public class Interpreter implements NodeVisitor<LexorValue> {
 
     @Override
     public LexorValue visitFor(ForNode node) {
-        // init — assign start value to loop variable
+        // set loop variable to start value
         LexorValue startVal = node.getStartExpr().accept(this);
         TokenType declaredType = env.getType(node.getVarName());
         startVal = TypeChecker.checkAssign(node.getVarName(), declaredType, startVal, node.getLine());
@@ -175,11 +164,13 @@ public class Interpreter implements NodeVisitor<LexorValue> {
             TypeChecker.checkBool(cond, "FOR condition", node.getLine());
             if (!cond.asBool()) break;
 
-            // body in child scope
+            // body
             executeBlock(node.getBody());
 
-            // update
-            node.getStepExpr().accept(this);
+            // update — step expression is an assignment node
+            if (node.hasStep()) {
+                node.getStepExpr().accept(this);
+            }
         }
         return null;
     }
@@ -195,43 +186,51 @@ public class Interpreter implements NodeVisitor<LexorValue> {
         return null;
     }
 
-    // ── expressions ───────────────────────────────────────────
-
     @Override
     public LexorValue visitBinaryOp(BinaryOpNode node) {
+        TokenType op   = node.getOperator();
+        int       line = node.getLine();
+
+        // short-circuit logical operators
+        if (op == TokenType.AND) {
+            LexorValue left = node.getLeft().accept(this);
+            TypeChecker.checkBool(left, "AND", line);
+            if (!left.asBool()) return LexorValue.ofBool(false);
+            LexorValue right = node.getRight().accept(this);
+            TypeChecker.checkBool(right, "AND", line);
+            return LexorValue.ofBool(right.asBool());
+        }
+
+        if (op == TokenType.OR) {
+            LexorValue left = node.getLeft().accept(this);
+            TypeChecker.checkBool(left, "OR", line);
+            if (left.asBool()) return LexorValue.ofBool(true);
+            LexorValue right = node.getRight().accept(this);
+            TypeChecker.checkBool(right, "OR", line);
+            return LexorValue.ofBool(right.asBool());
+        }
+
         LexorValue left  = node.getLeft().accept(this);
         LexorValue right = node.getRight().accept(this);
-        TokenType  op    = node.getOperator();
-        int        line  = node.getLine();
 
         switch (op) {
-            // arithmetic
-            case PLUS:     return arithmetic(left, right, op, line);
-            case MINUS:    return arithmetic(left, right, op, line);
-            case MULTIPLY: return arithmetic(left, right, op, line);
-            case DIVIDE:   return arithmetic(left, right, op, line);
-            case MODULO:   return arithmetic(left, right, op, line);
+            case PLUS:
+            case MINUS:
+            case MULTIPLY:
+            case DIVIDE:
+            case MODULO:
+                return arithmetic(left, right, op, line);
 
-            // comparison
-            case GREATER:       return compare(left, right, op, line);
-            case LESS:          return compare(left, right, op, line);
-            case GREATER_EQUAL: return compare(left, right, op, line);
-            case LESS_EQUAL:    return compare(left, right, op, line);
-            case EQUAL:         return compare(left, right, op, line);
-            case NOT_EQUAL:     return compare(left, right, op, line);
-
-            // logical
-            case AND:
-                TypeChecker.checkBool(left,  "AND", line);
-                TypeChecker.checkBool(right, "AND", line);
-                return LexorValue.ofBool(left.asBool() && right.asBool());
-            case OR:
-                TypeChecker.checkBool(left,  "OR", line);
-                TypeChecker.checkBool(right, "OR", line);
-                return LexorValue.ofBool(left.asBool() || right.asBool());
+            case GREATER:
+            case LESS:
+            case GREATER_EQUAL:
+            case LESS_EQUAL:
+            case EQUAL:
+            case NOT_EQUAL:
+                return compare(left, right, op, line);
 
             default:
-                throw new RuntimeException("[Line " + line + "] Unknown operator: " + op);
+                throw new RuntimeException("[Line " + line + "] unknown operator: " + op);
         }
     }
 
@@ -250,10 +249,10 @@ public class Interpreter implements NodeVisitor<LexorValue> {
                 if (operand.getType() == LexorValue.Type.FLOAT)
                     return LexorValue.ofFloat(-operand.asFloat());
                 throw new RuntimeException("[Line " + line
-                        + "] Type error: unary minus requires numeric operand");
+                        + "] unary minus requires numeric operand");
             default:
                 throw new RuntimeException("[Line " + line
-                        + "] Unknown unary operator: " + node.getOperator());
+                        + "] unknown unary operator: " + node.getOperator());
         }
     }
 
@@ -263,12 +262,12 @@ public class Interpreter implements NodeVisitor<LexorValue> {
             case INT_LITERAL:    return LexorValue.ofInt(Integer.parseInt(node.getValue()));
             case FLOAT_LITERAL:  return LexorValue.ofFloat(Double.parseDouble(node.getValue()));
             case CHAR_LITERAL:   return LexorValue.ofChar(node.getValue().charAt(0));
-            case STRING_LITERAL: return LexorValue.ofChar('\0'); // strings used only in PRINT
+            case STRING_LITERAL: return LexorValue.ofString(node.getValue());
             case TRUE:           return LexorValue.ofBool(true);
             case FALSE:          return LexorValue.ofBool(false);
             default:
                 throw new RuntimeException("[Line " + node.getLine()
-                        + "] Unknown literal type: " + node.getType());
+                        + "] unknown literal type: " + node.getType());
         }
     }
 
@@ -277,7 +276,7 @@ public class Interpreter implements NodeVisitor<LexorValue> {
         return env.get(node.getName());
     }
 
-    // ── helpers ───────────────────────────────────────────────
+    // helpers
 
     private void executeBlock(List<Node> stmts) {
         Environment previous = this.env;
@@ -305,7 +304,7 @@ public class Interpreter implements NodeVisitor<LexorValue> {
                 case MINUS:    return LexorValue.ofFloat(l - r);
                 case MULTIPLY: return LexorValue.ofFloat(l * r);
                 case DIVIDE:
-                    if (r == 0) throw new RuntimeException("[Line " + line + "] Division by zero");
+                    if (r == 0) throw new RuntimeException("[Line " + line + "] division by zero");
                     return LexorValue.ofFloat(l / r);
                 case MODULO:   return LexorValue.ofFloat(l % r);
                 default: break;
@@ -317,20 +316,19 @@ public class Interpreter implements NodeVisitor<LexorValue> {
                 case MINUS:    return LexorValue.ofInt(l - r);
                 case MULTIPLY: return LexorValue.ofInt(l * r);
                 case DIVIDE:
-                    if (r == 0) throw new RuntimeException("[Line " + line + "] Division by zero");
+                    if (r == 0) throw new RuntimeException("[Line " + line + "] division by zero");
                     return LexorValue.ofInt(l / r);
                 case MODULO:   return LexorValue.ofInt(l % r);
                 default: break;
             }
         }
-        throw new RuntimeException("[Line " + line + "] Unknown arithmetic op: " + op);
+        throw new RuntimeException("[Line " + line + "] unknown arithmetic op: " + op);
     }
 
     private LexorValue compare(LexorValue left, LexorValue right,
                                TokenType op, int line) {
         TypeChecker.checkComparable(left, right, op.name(), line);
 
-        // numeric comparison
         if (left.isNumeric() && right.isNumeric()) {
             double l = left.asFloat(), r = right.asFloat();
             switch (op) {
@@ -344,14 +342,12 @@ public class Interpreter implements NodeVisitor<LexorValue> {
             }
         }
 
-        // BOOL comparison
         if (left.getType() == LexorValue.Type.BOOL) {
             boolean l = left.asBool(), r = right.asBool();
             if (op == TokenType.EQUAL)     return LexorValue.ofBool(l == r);
             if (op == TokenType.NOT_EQUAL) return LexorValue.ofBool(l != r);
         }
 
-        // CHAR comparison
         if (left.getType() == LexorValue.Type.CHAR) {
             char l = left.asChar(), r = right.asChar();
             switch (op) {
@@ -365,6 +361,6 @@ public class Interpreter implements NodeVisitor<LexorValue> {
             }
         }
 
-        throw new RuntimeException("[Line " + line + "] Cannot compare: " + op);
+        throw new RuntimeException("[Line " + line + "] cannot compare: " + op);
     }
 }

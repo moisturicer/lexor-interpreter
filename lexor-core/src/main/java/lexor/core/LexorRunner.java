@@ -11,7 +11,13 @@ import java.util.List;
 
 public class LexorRunner {
 
+    // used by the web playground — no stdin
     public static String run(String sourceCode) {
+        return run(sourceCode, "");
+    }
+
+    // used when SCAN input is provided (comma-separated values from the frontend)
+    public static String run(String sourceCode, String input) {
         try {
             Lexer lexer = new Lexer(sourceCode);
             List<Token> tokens = lexer.tokenize();
@@ -19,7 +25,7 @@ public class LexorRunner {
             Parser parser = new Parser(tokens);
             ProgramNode program = parser.parse();
 
-            Interpreter interpreter = new Interpreter();
+            Interpreter interpreter = new Interpreter(input);
             return interpreter.run(program);
 
         } catch (LexorException e) {

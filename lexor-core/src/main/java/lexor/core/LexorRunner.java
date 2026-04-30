@@ -2,6 +2,7 @@ package lexor.core;
 
 import lexor.core.ast.ProgramNode;
 import lexor.core.error.LexorException;
+import lexor.core.interpreter.Interpreter;
 import lexor.core.lexer.Lexer;
 import lexor.core.lexer.Token;
 import lexor.core.parser.Parser;
@@ -18,10 +19,12 @@ public class LexorRunner {
             Parser parser = new Parser(tokens);
             ProgramNode program = parser.parse();
 
-            // interpreter not yet wired — Member B's phase 2
-            return "parsed ok — interpreter coming soon";
+            Interpreter interpreter = new Interpreter();
+            return interpreter.run(program);
 
         } catch (LexorException e) {
+            return "error: " + e.getMessage();
+        } catch (RuntimeException e) {
             return "error: " + e.getMessage();
         }
     }

@@ -1,4 +1,4 @@
-const BACKEND = 'http://localhost:8080';
+const BACKEND = '';
 
 const EXAMPLES = {
   hello: `%% hello world

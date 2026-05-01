@@ -4,14 +4,19 @@ import lexor.core.error.LexerException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class    Lexer {
+public class Lexer {
     private final String source;
     private int pos;
     private int line;
     private final List<Token> tokens;
 
     public Lexer(String source) {
-        this.source = source;
+        // normalize smart/curly quotes to straight quotes (from PDF/Word copy-paste)
+        this.source = source
+                .replace('\u2018', '\'')  // left single quote '
+                .replace('\u2019', '\'')  // right single quote '
+                .replace('\u201C', '"')   // left double quote "
+                .replace('\u201D', '"');  // right double quote "
         this.pos = 0;
         this.line = 1;
         this.tokens = new ArrayList<>();
@@ -64,7 +69,6 @@ public class    Lexer {
             if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
                 advance();
             } else if (c == '%' && peekNext() == '%') {
-                // comment — skip until end of line
                 while (pos < source.length() && peek() != '\n') {
                     advance();
                 }
@@ -120,7 +124,7 @@ public class    Lexer {
         }
         if (pos < source.length() && peek() == '.' &&
                 pos + 1 < source.length() && Character.isDigit(peekNext())) {
-            sb.append(advance()); // consume '.'
+            sb.append(advance());
             while (pos < source.length() && Character.isDigit(peek())) {
                 sb.append(advance());
             }
@@ -167,7 +171,30 @@ public class    Lexer {
 
     private void scanEscapeCode() {
         int startLine = line;
-        advance(); // consume '['
+        advance(); // consume opening '['
+
+        // check for [[] and []] — escaped bracket literals
+        if (pos < source.length() && peek() == '[') {
+            advance(); // consume '['
+            if (pos >= source.length() || peek() != ']') {
+                throw new LexerException(startLine, "Unclosed escape code");
+            }
+            advance(); // consume closing ']'
+            tokens.add(new Token(TokenType.STRING_LITERAL, "[", startLine));
+            return;
+        }
+
+        if (pos < source.length() && peek() == ']') {
+            advance(); // consume ']'
+            if (pos >= source.length() || peek() != ']') {
+                throw new LexerException(startLine, "Unclosed escape code");
+            }
+            advance(); // consume closing ']'
+            tokens.add(new Token(TokenType.STRING_LITERAL, "]", startLine));
+            return;
+        }
+
+        // general escape code: [#], [anything]
         StringBuilder sb = new StringBuilder();
         while (pos < source.length() && peek() != ']') {
             sb.append(advance());
@@ -175,7 +202,7 @@ public class    Lexer {
         if (pos >= source.length()) {
             throw new LexerException(startLine, "Unclosed escape code");
         }
-        advance(); // consume ']'
+        advance(); // consume closing ']'
         tokens.add(new Token(TokenType.STRING_LITERAL, sb.toString(), startLine));
     }
 
@@ -183,18 +210,18 @@ public class    Lexer {
         int startLine = line;
         char c = advance();
         switch (c) {
-            case '+': tokens.add(new Token(TokenType.PLUS, "+", startLine)); break;
-            case '-': tokens.add(new Token(TokenType.MINUS, "-", startLine)); break;
+            case '+': tokens.add(new Token(TokenType.PLUS,     "+", startLine)); break;
+            case '-': tokens.add(new Token(TokenType.MINUS,    "-", startLine)); break;
             case '*': tokens.add(new Token(TokenType.MULTIPLY, "*", startLine)); break;
-            case '/': tokens.add(new Token(TokenType.DIVIDE, "/", startLine)); break;
-            case '%': tokens.add(new Token(TokenType.MODULO, "%", startLine)); break;
-            case '&': tokens.add(new Token(TokenType.AMPERSAND, "&", startLine)); break;
-            case '$': tokens.add(new Token(TokenType.DOLLAR, "$", startLine)); break;
-            case '(': tokens.add(new Token(TokenType.LPAREN, "(", startLine)); break;
-            case ')': tokens.add(new Token(TokenType.RPAREN, ")", startLine)); break;
-            case ':': tokens.add(new Token(TokenType.COLON, ":", startLine)); break;
-            case ',': tokens.add(new Token(TokenType.COMMA, ",", startLine)); break;
-            case '=': tokens.add(new Token(TokenType.ASSIGN, "=", startLine)); break;
+            case '/': tokens.add(new Token(TokenType.DIVIDE,   "/", startLine)); break;
+            case '%': tokens.add(new Token(TokenType.MODULO,   "%", startLine)); break;
+            case '&': tokens.add(new Token(TokenType.AMPERSAND,"&", startLine)); break;
+            case '$': tokens.add(new Token(TokenType.DOLLAR,   "$", startLine)); break;
+            case '(': tokens.add(new Token(TokenType.LPAREN,   "(", startLine)); break;
+            case ')': tokens.add(new Token(TokenType.RPAREN,   ")", startLine)); break;
+            case ':': tokens.add(new Token(TokenType.COLON,    ":", startLine)); break;
+            case ',': tokens.add(new Token(TokenType.COMMA,    ",", startLine)); break;
+            case '=': tokens.add(new Token(TokenType.ASSIGN,   "=", startLine)); break;
             case '>':
                 if (pos < source.length() && peek() == '=') {
                     advance();

@@ -45,6 +45,13 @@ public class Parser {
         expect(TokenType.END);
         expect(TokenType.SCRIPT);
 
+        // ── reject anything after END SCRIPT ──────────────────
+        if (!check(TokenType.EOF)) {
+            throw new ParseException(peek().getLine(),
+                    "unexpected token after END SCRIPT: " + peek().getValue());
+        }
+        // ──────────────────────────────────────────────────────
+
         return new ProgramNode(line, "LEXOR", declarations, statements);
     }
 
@@ -78,16 +85,39 @@ public class Parser {
         throw new ParseException(peek().getLine(), "expected data type, got: " + peek().getValue());
     }
 
-    // only literals allowed in declarations
+    // only literals allowed in declarations — supports -5, +5, -1.5, +3.14
     private LiteralNode parseLiteralOnly(int line) {
+        // consume optional leading sign
+        boolean negative = false;
+        if (match(TokenType.MINUS)) {
+            negative = true;
+        } else {
+            match(TokenType.PLUS); // consume + and ignore it
+        }
+
         Token t = peek();
-        if (match(TokenType.INT_LITERAL))    return new LiteralNode(t.getLine(), TokenType.INT_LITERAL, t.getValue());
-        if (match(TokenType.FLOAT_LITERAL))  return new LiteralNode(t.getLine(), TokenType.FLOAT_LITERAL, t.getValue());
+
+        if (match(TokenType.INT_LITERAL)) {
+            String val = negative ? "-" + t.getValue() : t.getValue();
+            return new LiteralNode(t.getLine(), TokenType.INT_LITERAL, val);
+        }
+        if (match(TokenType.FLOAT_LITERAL)) {
+            String val = negative ? "-" + t.getValue() : t.getValue();
+            return new LiteralNode(t.getLine(), TokenType.FLOAT_LITERAL, val);
+        }
+
+        // sign is not valid for non-numeric literals
+        if (negative) {
+            throw new ParseException(line,
+                    "cannot apply '-' to non-numeric literal: " + t.getValue());
+        }
+
         if (match(TokenType.CHAR_LITERAL))   return new LiteralNode(t.getLine(), TokenType.CHAR_LITERAL, t.getValue());
         if (match(TokenType.STRING_LITERAL)) return new LiteralNode(t.getLine(), TokenType.STRING_LITERAL, t.getValue());
         if (match(TokenType.TRUE))           return new LiteralNode(t.getLine(), TokenType.TRUE, t.getValue());
         if (match(TokenType.FALSE))          return new LiteralNode(t.getLine(), TokenType.FALSE, t.getValue());
-        throw new ParseException(line, "expected literal value, got: " + peek().getValue());
+
+        throw new ParseException(line, "expected literal value, got: " + t.getValue());
     }
 
     private Node parseStatement() {
@@ -334,6 +364,7 @@ public class Parser {
         return left;
     }
 
+    // handles unary -x, +x in expressions (already supported — unchanged)
     private Node parseUnary() {
         if (check(TokenType.MINUS)) {
             int line = peek().getLine();

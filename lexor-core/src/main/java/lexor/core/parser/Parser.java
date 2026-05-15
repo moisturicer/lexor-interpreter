@@ -45,6 +45,13 @@ public class Parser {
         expect(TokenType.END);
         expect(TokenType.SCRIPT);
 
+        // ── reject anything after END SCRIPT ──────────────────
+        if (!check(TokenType.EOF)) {
+            throw new ParseException(peek().getLine(),
+                    "unexpected token after END SCRIPT: " + peek().getValue());
+        }
+        // ──────────────────────────────────────────────────────
+
         return new ProgramNode(line, "LEXOR", declarations, statements);
     }
 
@@ -78,16 +85,39 @@ public class Parser {
         throw new ParseException(peek().getLine(), "expected data type, got: " + peek().getValue());
     }
 
-    // only literals allowed in declarations
+    // only literals allowed in declarations — supports -5, +5, -1.5, +3.14
     private LiteralNode parseLiteralOnly(int line) {
+        // consume optional leading sign
+        boolean negative = false;
+        if (match(TokenType.MINUS)) {
+            negative = true;
+        } else {
+            match(TokenType.PLUS); // consume + and ignore it
+        }
+
         Token t = peek();
-        if (match(TokenType.INT_LITERAL))    return new LiteralNode(t.getLine(), TokenType.INT_LITERAL, t.getValue());
-        if (match(TokenType.FLOAT_LITERAL))  return new LiteralNode(t.getLine(), TokenType.FLOAT_LITERAL, t.getValue());
+
+        if (match(TokenType.INT_LITERAL)) {
+            String val = negative ? "-" + t.getValue() : t.getValue();
+            return new LiteralNode(t.getLine(), TokenType.INT_LITERAL, val);
+        }
+        if (match(TokenType.FLOAT_LITERAL)) {
+            String val = negative ? "-" + t.getValue() : t.getValue();
+            return new LiteralNode(t.getLine(), TokenType.FLOAT_LITERAL, val);
+        }
+
+        // sign is not valid for non-numeric literals
+        if (negative) {
+            throw new ParseException(line,
+                    "cannot apply '-' to non-numeric literal: " + t.getValue());
+        }
+
         if (match(TokenType.CHAR_LITERAL))   return new LiteralNode(t.getLine(), TokenType.CHAR_LITERAL, t.getValue());
         if (match(TokenType.STRING_LITERAL)) return new LiteralNode(t.getLine(), TokenType.STRING_LITERAL, t.getValue());
         if (match(TokenType.TRUE))           return new LiteralNode(t.getLine(), TokenType.TRUE, t.getValue());
         if (match(TokenType.FALSE))          return new LiteralNode(t.getLine(), TokenType.FALSE, t.getValue());
-        throw new ParseException(line, "expected literal value, got: " + peek().getValue());
+
+        throw new ParseException(line, "expected literal value, got: " + t.getValue());
     }
 
     private Node parseStatement() {
@@ -120,6 +150,8 @@ public class Parser {
     }
 
     // PRINT: expr & expr & $ & expr
+    // $ inline = newline in the middle of output
+    // $ at end  = trailing newline
     private PrintNode parsePrint() {
         int line = peek().getLine();
         expect(TokenType.PRINT);
@@ -128,21 +160,28 @@ public class Parser {
         List<Node> items = new ArrayList<>();
         boolean newline = false;
 
-        // first item
+        // first item — could be $ or an expression
         if (check(TokenType.DOLLAR)) {
             advance();
-            newline = true;
+            items.add(null); // null = newline marker
         } else {
             items.add(parseExpression());
         }
 
+        // remaining items separated by &
         while (match(TokenType.AMPERSAND)) {
             if (check(TokenType.DOLLAR)) {
                 advance();
-                newline = true;
+                items.add(null); // null = inline newline marker
             } else {
                 items.add(parseExpression());
             }
+        }
+
+        // trailing $ with no & — e.g. PRINT: "Hello" $
+        if (check(TokenType.DOLLAR)) {
+            advance();
+            newline = true;
         }
 
         return new PrintNode(line, items, newline);
@@ -223,7 +262,7 @@ public class Parser {
         Node condExpr = parseExpression();
 
         expect(TokenType.COMMA);
-        Node updateExpr = parseExpression();
+        Node updateExpr = parseAssign();
 
         expect(TokenType.RPAREN);
         expect(TokenType.START);
@@ -306,9 +345,11 @@ public class Parser {
         Node left = parseAddition();
         while (checkAny(TokenType.GREATER, TokenType.LESS,
                 TokenType.GREATER_EQUAL, TokenType.LESS_EQUAL,
-                TokenType.EQUAL, TokenType.NOT_EQUAL)) {
+                TokenType.EQUAL, TokenType.NOT_EQUAL,
+                TokenType.ASSIGN)) {
             int line = peek().getLine();
             TokenType op = advance().getType();
+            if (op == TokenType.ASSIGN) op = TokenType.EQUAL;
             left = new BinaryOpNode(line, left, op, parseAddition());
         }
         return left;
@@ -334,6 +375,7 @@ public class Parser {
         return left;
     }
 
+    // handles unary -x, +x in expressions
     private Node parseUnary() {
         if (check(TokenType.MINUS)) {
             int line = peek().getLine();

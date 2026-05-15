@@ -21,12 +21,12 @@ public class RunController {
         String code  = request.getCode()  != null ? request.getCode()  : "";
         String input = request.getInput() != null ? request.getInput() : "";
 
-        try {
-            String output = LexorRunner.run(code, input);
-            return ResponseEntity.ok(new RunResponse(output, null));
-        } catch (Exception e) {
-            return ResponseEntity.ok(new RunResponse(null, e.getMessage()));
+        String result = LexorRunner.run(code, input);
+
+        if (result.startsWith("error:")) {
+            return ResponseEntity.ok(new RunResponse(null, result));
+        } else {
+            return ResponseEntity.ok(new RunResponse(result, null));
         }
     }
 }
-

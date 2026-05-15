@@ -221,7 +221,14 @@ public class Lexer {
             case ')': tokens.add(new Token(TokenType.RPAREN,   ")", startLine)); break;
             case ':': tokens.add(new Token(TokenType.COLON,    ":", startLine)); break;
             case ',': tokens.add(new Token(TokenType.COMMA,    ",", startLine)); break;
-            case '=': tokens.add(new Token(TokenType.ASSIGN,   "=", startLine)); break;
+            case '=':
+                if (pos < source.length() && peek() == '=') {
+                    advance();
+                    tokens.add(new Token(TokenType.EQUAL, "==", startLine));
+                } else {
+                    tokens.add(new Token(TokenType.ASSIGN, "=", startLine));
+                }
+                break;
             case '>':
                 if (pos < source.length() && peek() == '=') {
                     advance();

@@ -150,6 +150,8 @@ public class Parser {
     }
 
     // PRINT: expr & expr & $ & expr
+    // $ inline = newline in the middle of output
+    // $ at end  = trailing newline
     private PrintNode parsePrint() {
         int line = peek().getLine();
         expect(TokenType.PRINT);
@@ -158,21 +160,28 @@ public class Parser {
         List<Node> items = new ArrayList<>();
         boolean newline = false;
 
-        // first item
+        // first item — could be $ or an expression
         if (check(TokenType.DOLLAR)) {
             advance();
-            newline = true;
+            items.add(null); // null = newline marker
         } else {
             items.add(parseExpression());
         }
 
+        // remaining items separated by &
         while (match(TokenType.AMPERSAND)) {
             if (check(TokenType.DOLLAR)) {
                 advance();
-                newline = true;
+                items.add(null); // null = inline newline marker
             } else {
                 items.add(parseExpression());
             }
+        }
+
+        // trailing $ with no & — e.g. PRINT: "Hello" $
+        if (check(TokenType.DOLLAR)) {
+            advance();
+            newline = true;
         }
 
         return new PrintNode(line, items, newline);
@@ -253,7 +262,7 @@ public class Parser {
         Node condExpr = parseExpression();
 
         expect(TokenType.COMMA);
-        Node updateExpr = parseExpression();
+        Node updateExpr = parseAssign();
 
         expect(TokenType.RPAREN);
         expect(TokenType.START);
@@ -336,9 +345,11 @@ public class Parser {
         Node left = parseAddition();
         while (checkAny(TokenType.GREATER, TokenType.LESS,
                 TokenType.GREATER_EQUAL, TokenType.LESS_EQUAL,
-                TokenType.EQUAL, TokenType.NOT_EQUAL)) {
+                TokenType.EQUAL, TokenType.NOT_EQUAL,
+                TokenType.ASSIGN)) {
             int line = peek().getLine();
             TokenType op = advance().getType();
+            if (op == TokenType.ASSIGN) op = TokenType.EQUAL;
             left = new BinaryOpNode(line, left, op, parseAddition());
         }
         return left;
@@ -364,7 +375,7 @@ public class Parser {
         return left;
     }
 
-    // handles unary -x, +x in expressions (already supported — unchanged)
+    // handles unary -x, +x in expressions
     private Node parseUnary() {
         if (check(TokenType.MINUS)) {
             int line = peek().getLine();

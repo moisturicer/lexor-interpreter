@@ -70,8 +70,12 @@ public class Interpreter implements NodeVisitor<LexorValue> {
         StringBuilder sb = new StringBuilder();
 
         for (Node item : node.getItems()) {
-            LexorValue val = item.accept(this);
-            sb.append(val.toString());
+            if (item == null) {
+                sb.append("\n"); // inline $ newline marker
+            } else {
+                LexorValue val = item.accept(this);
+                sb.append(val.toString());
+            }
         }
 
         if (node.hasNewline()) {
